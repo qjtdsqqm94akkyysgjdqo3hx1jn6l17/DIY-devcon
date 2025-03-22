@@ -1,0 +1,12 @@
+{
+    "cSpell.words": [
+        "hexdump",
+        "lowerdir",
+        "overlayfs",
+        "upperdir",
+        "urandom"
+    ],
+    "cSpell.ignoreWords": [
+        "acodium"
+    ]
+}

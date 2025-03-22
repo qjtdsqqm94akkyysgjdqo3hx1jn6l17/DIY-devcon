@@ -1,0 +1,31 @@
+#!/bin/bash
+
+# This uses the shell's expansion rule to enable overriding default values
+# the syntax looks like this:
+# ${explanation:=notice how we don't need to quote the string inside here}
+# ${my_variable:=my default value ($explanation, except with sub shells: "$(ls .)")}
+# `:=` meaning "fall back to this value if the variable in question's not set or empty"
+# `=` meaning "fall back to this value only if the variable in question's not set (not defined)"
+
+: "${container_image:=}"    # SET ME!
+: "${codium_server_path:=}" # SET ME!
+
+# change `podman` to `docker` you use that instead.
+: "${container_prog:=podman}"
+container_extra_args=()
+
+# container_extra_args=("-a" "value" "--option" "values")
+
+: "${codium_server_extension_dir:=_extensions}"
+: "${codium_server_env_file:=.vscode/byo-devcontainer/.container-env}"
+: "${codium_server_internal_port:=8989}" # the port your codium server will be listening on inside the container
+: "${codium_server_external_port:=8989}" # the port that your container will map to the aforementioned port for you to access
+
+: "${project_path:=$CURR_DIR}"
+: "${project_extension_overlayFS_upper_dir:=.vscode/byo-devcontainer/extensions}"
+: "${project_extension_overlayFS_lower_dir_paths:=}" # add more lower dir: $path_to_dir[:$path_to_another_dir...]
+: "${project_extension_overlayFS_work_dir:=.vscode/byo-devcontainer/extensions-overlay-workdir}"
+: "${project_extension_overlayFS_mount_dir_prefix:=devcontainer-extensions}"
+
+
+: "${_print_configs:=false}"
