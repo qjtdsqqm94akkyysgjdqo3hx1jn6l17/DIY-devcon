@@ -5,9 +5,9 @@
 # example ref'd from wikipeadia
 while getopts ':s:p:e:w' opt; do
   case $opt in
-    (s) settings_json_file="$OPTARGS";;
-    (p) project_dir="$OPTARGS";;
-    (e) env_file="$OPTARGS";;
+    (s) settings_json_file="$OPTARG";;
+    (p) project_dir="$OPTARG";;
+    (e) env_file="$OPTARG";;
     (w) _write_to_file=true;;
     (:) : ;; # handled optional args (all args are!)
     (*) # print help
