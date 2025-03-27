@@ -61,7 +61,7 @@ settings_json_file="$(eval echo "${settings_json_file}")"
 : "${host_address:="127.0.0.1"}"
 
 if "$_write_to_file"; then
-  output_json_file="$settings_json_file"
+  output_json_file="${settings_json_file:?Must provide path to settings.json (Hint: \`-h\' for help)}"
 else
   output_json_file="/tmp/settings.json"
 fi
