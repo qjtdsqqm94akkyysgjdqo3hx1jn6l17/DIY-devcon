@@ -1,35 +1,29 @@
 # D.I.Y DevContainers!
 
-Documenting my attempt of hacking together my own docker/podman based development environment in VSCodium. Based on the write up in [vscode-remote-oss](https://github.com/xaberus/vscode-remote-oss.git). This is intended to be an extension of their README.md, or in order words I will only bring up things that have existed in it.
+This repo documents my journey of hacking together a Docker/Podman-based development environment in VSCodium without official devcontainer support. Consider this an extension of the approach described in [vscode-remote-oss](https://github.com/xaberus/vscode-remote-oss.git).
 
-> **Note**: For a VSCodium extension with proper devcontainer support, see [`devpodcontainers`](https://github.com/3timeslazy/vscodium-devpodcontainers).
+> **Note**: For a proper VSCodium extension with devcontainer support, see [`devpodcontainers`](https://github.com/3timeslazy/vscodium-devpodcontainers).
 
 ## Prerequisites
-- Remote-FOSS extension installed from [Open VSX](https://open-vsx.org/vscode/item?itemName=xaberus.remote-oss) (any extensions that enable the remote development API)
-- Docker or Podman installed
-- VSCodium RHEL server (Be mindful of the version of your VSCodium version as well as wheter your container are using `libmuls` or `gcc`)
+- Remote-FOSS extension from [Open VSX](https://open-vsx.org/vscode/item?itemName=xaberus.remote-oss)
+- Docker or Podman
+- VSCodium RHEL server (matching your VSCodium version and container's libc implementation)
 - (optional) `fuse-overlayfs`
 
-## Basic idea:
-Make a script that:
-  - Create a (temoprary) container.
-  - Pass through:
-    - the RHEL server executable
-    - the plugin directory (to have project-scope plugins), as well as...
-    - your particular project root directory.
-  - publish the RHEL server port
-  - start the RHEL server itself.
+## The General Idea
 
-Also: generate the client side config (mainly a QoL thing).
+The approach is straightforward:
+- Create a container
+- Pass through the RHEL server executable, plugin directory, and project root
+- Publish the RHEL server port
+- Start the RHEL server
+- Configure the client to connect to this server
 
-I planned to have all the parameters to the script accessible and configurable via a [**`.dev-env`**](./.dev-env-TEMPLATE) file in one's project repositoty. This approach should mean that the configurations can be keep local even if everything is publiblish just by adding one line in `.gitignore`. To ensure that the values can be quicky overided in runtime I used POSIX shell's [parameter expansion](https://pubs.opengroup.org/onlinepubs/9799919799/utilities/V3_chap02.html#tag_19_06_02) syntax:
+## What Actually Works
 
-```sh
-: "${my_variable:=my default value}" # fall back to "my default value" if empty
-: "${my_variable:?Variable not set!!}" # throws an error with content "Variable not set!!" if variable is empty
-```
+For anyone wanting to skip my learning process, here's the key insight:
 
-By default, similar to its client, the codium RHEL server install extensions at `$HOME/.vscodium-server/extensions`. Thus, to be able to only have the relevant extension accessible to each individual project and keep the server directory unmodified, simply mount the server directory anywhere other than at `$HOME/.vscodium-server/` (aka `/root/.vscodium-server/` in most container). And for persistence across temporary containers, simply bind a folder somewhere on your machine to said folder
+By default, the VSCodium RHEL server installs extensions at `$HOME/.vscodium-server/extensions`. To isolate extensions per project, simply mount the server directory anywhere *except* at `$HOME/.vscodium-server/` and provide a project-specific extensions directory:
 
 ```sh
 podman run --rm -it \
@@ -38,7 +32,29 @@ podman run --rm -it \
     # Rest of the command
 ```
 
-I, however, did not know this and had set aside an entire section in my script to mount the extension directory as an overlay file system and bind it to where the directory is supposed to be:
+For the server startup, set the host to `0.0.0.0` (not `localhost` or `127.0.0.1`) and use a connection token file:
+
+```sh
+#!/bin/sh
+. "$HOME/.env" || exit 1;
+
+"$(dirname "$0")/bin/codium-server" \
+    --host 0.0.0.0 \
+    --port "${REMOTE_PORT:?variable is empty.}" \
+    --telemetry-level off \
+    --connection-token-file "${CONNECTION_TOKEN_PATH:?variable is empty.}"
+```
+
+I've made all parameters configurable via a [`.dev-env`](./.dev-env-TEMPLATE) file, using POSIX shell's parameter expansion for defaults:
+
+```sh
+: "${my_variable:=my default value}" # falls back to default if empty
+: "${my_variable:?Variable not set!!}" # throws error if empty
+```
+
+## The OverlayFS Saga
+
+Remember when I said that your plugin is automatically separated when you mount the RHEL's server folder anywhere **other** than `$HOME/.vscodium-server`? I didn't know that. Thus I wasted my time and CPU cycles mounting the Codium server's extensions directory using an overlay filesystem:
 
 ```bash
 ext_overlayFS_lower_paths="$codium_server_path/$codium_server_extension_dir:$project_extension_overlayFS_lower_dir_paths"
@@ -69,34 +85,16 @@ podman run --rm -it \
 # after the container exit
 overlayfs_cleanup
 ```
-...which is unnessesary and a complete waste of resources unless you decided to mount the server dir dead on `$HOME/.vscodium-server`.
 
-moving on to the server start script. Note how I set the host at `0.0.0.0` instead of `localhost` or `127.0.0.1`. I am not clear if it is a limitation with rootless podman or not but I can't connect to the server otherwise. I'd recommend using a connection token file placed in your container's home directory (which, again, is being passed along to the container).
-```sh
-#!/bin/sh
-# shellcheck disable=SC1091
+I included this here mainly because I had put way too much effort for this to be buried 6 feet under (and who knows? Maybe you ARE planning to mount the server directory dead on `$HOME/.vscodium-server` :3)
 
-. "$HOME/.env" || exit 1;
+## Running the demo
 
-"$(dirname "$0")/bin/codium-server" \
-    --host 0.0.0.0 \
-    --port "${REMOTE_PORT:?variable is empty.}" \
-    --telemetry-level off \
-    --connection-token-file "${CONNECTION_TOKEN_PATH:?variable is empty.}"
-```
-
-
-## Quick Start
-
-
-## My attempt so far:
-
-### Using the (outdated) demo:
 1. Download and extract your VSCodium server
    - Copy `server-server.sh` to the extracted directory
-   - Rename the `extensions` folder to `_extensions`
+   - Rename the `extensions` folder to `_extensions` (prevents server from using these by default)
 
-2. Prepare Project Folder
+2. Prepare your project folder
    - Copy `start.sh` and `.dev-env-TEMPLATE` to your project
    - Rename `.dev-env-TEMPLATE` to `.dev-env`
 
@@ -112,32 +110,24 @@ moving on to the server start script. Note how I set the host at `0.0.0.0` inste
    : "${container_prog:=podman}"
    ```
 
-4. Start Development Environment
+4. Start your dev environment
    - Run `start.sh`
-     - Automatically generates a connection token
-     - Sets up and mounts the overlay filesystem for extensions
-     - Starts the server
+   - The script will generate a connection token and start the server
 
 5. Configure Remote Connection
-   - Run `add_remote_oss_hosts_conf.sh`
-     - Generates VSCodium connection configuration
-     - Optional: Run with `-p ~/path/to/.vscode/profile/.../settings.json`
-   - Copy the generated config to `~/path/to/.vscode/profile/.../settings.json`
+   - Run `add_remote_oss_hosts_conf.sh` to generate connection config
+   - Optional: Use `-p ~/path/to/.vscode/profile/.../settings.json` to specify location
+   - Copy the generated config to your settings file
 
-   Experimental: Directly update settings.json
+   Alternatively, update settings directly:
    ```
-   # Update settings file in-place
    ./add_remote_oss_hosts_conf.sh -w -p ~/path/to/.vscode/profile/.../settings.json
    ```
 
-6. Connect
-   - Open Remote-FOSS extension
-   - Connect to the remote host
-
-## Experimental Features
-- Use `-w` flag to directly write to settings.json
+6. Connect using the Remote-FOSS extension
 
 ## TODO
-- [ ] cut out the unesseary stuff
+- [ ] Clean up the unnecessary parts in the script (the eternal todo item)
+- [x] Improve documentation (to be actually presentable)(using Claude)
 
-> This README was modified in part using Claude 3.5 Haiku
+> This README was modified with help from the Claude LLM family
