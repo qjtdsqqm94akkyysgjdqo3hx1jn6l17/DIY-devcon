@@ -17,10 +17,10 @@
 # You should have received a copy of the GNU Lesser Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-. "$HOME/.env" || exit 1;
+. "$(dirname "$0")/.env" || exit 1;
 
 "$(dirname "$0")/bin/codium-server" \
     --host 0.0.0.0 \
     --port "${REMOTE_PORT:?variable is empty.}" \
     --telemetry-level off \
-    --connection-token-file "${TOKEN_FILE:?variable is empty.}"
+    --connection-token "${CONNECTION_TOKEN:?variable is empty.}"

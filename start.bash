@@ -17,80 +17,104 @@
 # You should have received a copy of the GNU Lesser Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+readonly e="$(printf '\033[1m[\033[5m\033[31mERROR\033[39m\033[25m]\033[0m')"
+readonly i="$(printf '\033[1m[\033[36mINFO\033[39m]\033[0m')"
+
 CURR_DIR="$(pwd)"
 : "${run_cmd:=sh "/bin/codium-server/start-server.sh"}"
 # shellcheck source-path=./.dev-env-TEMPLATE
 ! [ -r "$(dirname "$0")/.dev-env" ] || . "$(dirname "$0")/.dev-env"
 . "$CURR_DIR/.dev-env" || {
-  echo "Please make a file called '.dev-env' with the content of '.dev-env-TEMPLATE'"
+  echo "$e Please make a file called '.dev-env' with the content of '.dev-env-TEMPLATE'"
   exit 1
 }
 
-: "${container_image:?Container image name not specified, set it in .dev-env}"
-: "${codium_server_path:?Path not defined, set it in .dev-env}"
+: "${container_image:?$e Container image name not specified, set it in .dev-env}"
+: "${codium_server_path:?$e Path not defined, set it in .dev-env}"
 
+_missing_var=false
+# Check if variables are present
+for var in \
+  "container_image"\
+  "codium_server_path"\
+  "container_prog"\
+  "project_path"\
+  "diy_devcon_base_path"\
+  "project_home_path"\
+  "codium_server_token_file"\
+  "codium_server_env_file"\
+  "codium_server_internal_port"\
+  "codium_server_external_port"\
+  "container_home_path"\
+  "container_codium_server_token_file"\
+  "container_codium_server_path"\
+  "_print_configs"\
+  "_permanent_container"
+do
+  # put this in a subshell so we don't get `exit 1`'d
+  (eval : "\${$var:?Variable not set}") || _missing_var=true
+done
+
+if "$_missing_var"; then
+  echo -e "\n$e The above variables is NOT defined."\
+    "Pls make sure that '.dev-env' follows the TEMPLATE"
+  echo "$i Script will now exit."
+  exit 1
+fi
+
+unset _missing_var
 
 rand_hex(){
   local length="${1:-8}" # default length is 8 bytes (16 characters)
   hexdump -n "$length" -ve '"%x"' < /dev/urandom
 }
 
-overlayfs_cleanup(){
-  echo "Unmounting '$ext_overlayFS_mount_point'"
-  fusermount -u "$ext_overlayFS_mount_point" &&\
-  rmdir -v "$ext_overlayFS_mount_point"
-}
+mkdir -pv "$project_home_path"
 
-ext_overlayFS_lower_paths="$codium_server_path/$codium_server_extension_dir:$project_extension_overlayFS_lower_dir_paths"
-ext_overlayFS_upper_path="$project_path/$project_extension_overlayFS_upper_dir"
-ext_overlayFS_work_path="$project_path/$project_extension_overlayFS_work_dir"
-ext_overlayFS_mount_point="/tmp/$project_extension_overlayFS_mount_dir_prefix-$(rand_hex 4)"
 
-echo "Creating directory(ies)"
-for path in \
-  "$ext_overlayFS_lower_paths"\
-  "$ext_overlayFS_upper_path"\
-  "$ext_overlayFS_work_path"\
-  "$ext_overlayFS_mount_point"
-do
-  mkdir -pv "$path"
-done
+codium_server_env_file="$project_path/${codium_server_env_file}"
 
-fuse-overlayfs\
-  -o lowerdir="$ext_overlayFS_lower_paths"\
-  -o upperdir="$ext_overlayFS_upper_path"\
-  -o workdir="$ext_overlayFS_work_path"\
-  "$ext_overlayFS_mount_point" \
-    && echo "Mounted overlay filesystem for project's extensions at '$ext_overlayFS_mount_point'"\
-    || exit 1
+# TODO: random name gen
+#   shuf -n 30 -e $(grep -vE "^.+(ty|ed|ive|'s)$" /usr/share/dict/words)
+# shuf -n 30 -e $(grep -E "^[[:lower:]]+(ry|al|ile|esque|ish|like|ful|ive|able|ible|less|ous|nite|ed)$" /usr/share/dict/words)
 
-container_env_path="$project_path/${codium_server_env_file}"
-# shellcheck disable=SC1090
-if ! source "$container_env_path"; then
-  echo "unable to source .container-env! regenerating file with a new token..."
-  cp "$container_env_path" "$container_env_path.bak"
+if ! [ -s "$codium_server_token_file" ]; then
+  echo "$i connection token file @ '$codium_server_token_file' not found!"\
+    "generating a new one..."
   CONNECTION_TOKEN="$(rand_hex 32 | sha512sum | cut -d ' ' -f 1 )"
+  # remove any line with CONNECTION_TOKEN, then add new CONNECTION_TOKEN=... line
+      echo -n "$CONNECTION_TOKEN" > "$codium_server_token_file"
+    _print_configs=true
+fi
+# shellcheck disable=SC1090
+if ! source "$codium_server_env_file"; then
+  echo "$i unable to source '$codium_server_env_file'!"\
+    "regenerating file..."
+  cp "$codium_server_env_file" "$codium_server_env_file.bak" &2>/dev/null
   echo -e \
     "REMOTE_PORT='$codium_server_internal_port'"\
-    "\nCONNECTION_TOKEN='$CONNECTION_TOKEN'" > "$container_env_path"
+    "\nTOKEN_FILE='$container_codium_server_token_file'" > "$codium_server_env_file"
 else
-
-  if [ -z "$CONNECTION_TOKEN" ]; then
-    echo "connection token not found! generating a new one & updating the file..."
-    CONNECTION_TOKEN="$(rand_hex 32 | sha512sum | cut -d ' ' -f 1 )"
-    # remove any line with CONNECTION_TOKEN, then add new CONNECTION_TOKEN=... line
-    sed -i'.bak' "$container_env_path" \
-      -e  '/^CONNECTION_TOKEN.*$' \
-      -e "\$aCONNECTION_TOKEN=${CONNECTION_TOKEN}"
+  if [ -z "$TOKEN_FILE" ] ||\
+    [ "$TOKEN_FILE" != "$container_codium_server_token_file" ];
+  then
+    echo "$i Container token path not defined or mismatch with what's in '.dev-env'!" \
+      "Updating the file..."
+    TOKEN_FILE="$(rand_hex 32 | sha512sum | cut -d ' ' -f 1 )"
+    # remove any line with TOKEN_FILE, then add new TOKEN_FILE=... line
+    sed -i'.bak' "$codium_server_env_file" \
+      -e  '/^TOKEN_FILE.*$' \
+      -e "\$aTOKEN_FILE=${container_codium_server_token_file}"
     _print_configs=true
   fi
 
   if [ -z "$REMOTE_PORT" ] ||\
     [ "$REMOTE_PORT" != "$codium_server_internal_port" ]
   then
-    echo "Port mismatch! updating the file with value from 'codium_server_internal_port'..."
+    echo "$i Port not defined or mismatch with what's in '.dev-env'!"\
+      "Updating the file..."
 
-    sed -i'.bak' "$container_env_path" \
+    sed -i'.bak' "$codium_server_env_file" \
       -e  '/^REMOTE_PORT.*$' \
       -e "\$aREMOTE_PORT=${codium_server_internal_port}"
   fi
@@ -101,18 +125,15 @@ if "$_print_configs"; then
   echo -e "PORT:\t $codium_server_external_port"
   echo -e "PATH:\t $(pwd)"
   echo -e "TOKEN:\t $CONNECTION_TOKEN"
-  echo -e "=================================\n(script will pause for a bit)"
+  echo -e "=================================\n$i (script will pause for a bit)"
   sleep 5 # pause so the user don't miss the config
 fi
 
 
 "$container_prog" run --rm -it -v "$(pwd):$(pwd)" \
-  -v "$ext_overlayFS_mount_point:/bin/codium-server/extensions"\
-  -v "$codium_server_path:/bin/codium-server/"\
-  -v "$container_env_path:/bin/codium-server/.env"\
+  -v "$project_home_path:$container_home_path"\
+  -v "$codium_server_path:$container_codium_server_path"\
   -p "$codium_server_external_port:$codium_server_internal_port"\
   "${container_extra_args[@]}" \
   "$container_image"\
   sh -c "${run_cmd}"
-
-overlayfs_cleanup

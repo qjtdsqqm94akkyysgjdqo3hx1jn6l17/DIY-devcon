@@ -127,7 +127,9 @@ I included this here mainly because I had put way too much effort for this to be
 6. Connect using the Remote-FOSS extension
 
 ## TODO
-- [ ] Clean up the unnecessary parts in the script (the eternal todo item)
+- [-] Clean up the unnecessary parts in the script (the eternal todo item)
+{{REWRITTEN_CODE}}
+- [ ] Add support for using permanent containers
 - [x] Improve documentation (to be actually presentable)(using Claude)
 
 > This README was modified with help from the Claude LLM family
